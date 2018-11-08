@@ -19,29 +19,43 @@ cap = cv2.VideoCapture('../pedestrians.mp4')
 width = int(cap.get(3))
 height = int(cap.get(4))
 
-play, frame = cap.read()
+next_frame, frame = cap.read()
+play = True
 
-while cap.isOpened() and play:
+while cap.isOpened():
+    if play:
+        # extract the foreground mask
+        mask = bg_sub.fg_mask(frame)
 
-    # extract the foreground mask
-    mask = bg_sub.fg_mask(frame)
+        # # apply it and obtain an rgb foreground
+        # col_foreground = cv2.bitwise_and(frame, frame, mask=mask)
 
-    # # apply it and obtain an rgb foreground
-    # col_foreground = cv2.bitwise_and(frame, frame, mask=mask)
+        # extract contours of pedestrians
+        contours = ped_det.detect_objects(mask)
 
-    # extract contours of pedestrians
-    contours = ped_det.detect_objects(mask)
+        # update statistics
+        stats.update(contours)
 
-    # update statistics
-    stats.update(contours)
+        # draw contours
+        cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
 
-    cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
+        # draw obj counts: detected / ground truth
+        cv2.putText(frame, 'Objetcs: {}/{}'.format(len(contours), stats.get_curr_truth_counts()),
+                    (int(width*0.30), int(height*0.12)),
+                    cv2.FONT_HERSHEY_PLAIN, 4, (0, 0, 255), 5)
 
-    # display the image
-    cv2.imshow('video', frame)
-    if cv2.waitKey(10) & 0xFF == ord('q'):
+        # display the image
+        cv2.imshow('video', frame)
+
+        next_frame, frame = cap.read()
+
+    # q for exit, space for pause
+    key = cv2.waitKey(10) & 0xFF
+    if key == ord('q'):
         break
-    play, frame = cap.read()
+    elif key == 0x20:
+        play = not play
+
 
 stats.print_stats()
 

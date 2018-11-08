@@ -16,6 +16,11 @@ class Statistics(object):
         self.truth_avg = 0
 
     def update(self, contours):
+        """
+        if the frame is present in ground truth file the stats about performances are updated
+        :param contours: list of contours in current frame
+        :return:
+        """
         if self.idx + 1 in self.frame_info:
             self.idx += 1
             self.predicted_avg += len(contours)
@@ -26,3 +31,10 @@ class Statistics(object):
         print("Frame error: %s" % (self.frame_err_avg/self.idx))
         print("Frame avg: %s" % (self.predicted_avg/self.idx))
         print("Frame truth avg: %s" % (self.truth_avg/self.idx))
+
+    def get_curr_truth_counts(self):
+        """
+        returns number of current ground truth counts
+        :return:
+        """
+        return self.frame_info[self.idx]
