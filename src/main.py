@@ -4,6 +4,7 @@ import cv2
 
 from bg_subtractor import Bg_subtractor
 from obj_detector import Obj_detector
+from stats import Statistics
 
 # background subtraction model
 bg_sub = Bg_subtractor()
@@ -11,13 +12,16 @@ bg_sub = Bg_subtractor()
 # pedestrians detection model
 ped_det = Obj_detector()
 
+# performance statistics
+stats = Statistics("../groundtruth.txt")
+
 cap = cv2.VideoCapture('../pedestrians.mp4')
 width = int(cap.get(3))
 height = int(cap.get(4))
 
 play, frame = cap.read()
 
-while(cap.isOpened() and play):
+while cap.isOpened() and play:
 
     # extract the foreground mask
     mask = bg_sub.fg_mask(frame)
@@ -28,6 +32,9 @@ while(cap.isOpened() and play):
     # extract contours of pedestrians
     contours = ped_det.detect_objects(mask)
 
+    # update statistics
+    stats.update(contours)
+
     cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
 
     # display the image
@@ -35,6 +42,8 @@ while(cap.isOpened() and play):
     if cv2.waitKey(10) & 0xFF == ord('q'):
         break
     play, frame = cap.read()
+
+stats.print_stats()
 
 cap.release()
 cv2.destroyAllWindows()
