@@ -5,27 +5,44 @@ import numpy as np
 
 
 class Rectifier(object):
-    def __init__(self, width, height, shift=100):
+    def __init__(self, width, height, shift=100, up=True, central_zoom = 50):
         self.width = width
         self.height = height
         self.shift = shift
 
         # source and destination points left/right
 
-        pts_src_l = np.array([[0, 0], [0, height], [int(width / 2), 0], [int(width / 2), height]])
+        if up:
+            pts_src_l = np.array([[0, 0], [0, height], [int(width / 2), 0], [int(width / 2), height]])
 
-        pts_dst_l = np.array([[shift, shift], [shift, height - shift], [int(width / 2), 0],
-                                   [int(width / 2), height]])
+            pts_dst_l = np.array([[-shift, -shift], [-shift, height+shift],
+                                  [int(width / 2), -central_zoom], [int(width / 2), height+central_zoom]])
 
-        pts_src_r = np.array([[int(width / 2), 0], [int(width / 2), height], [width, 0], [width, height]])
+            pts_src_r = np.array([[int(width / 2), 0], [int(width / 2), height], [width, 0], [width, height]])
+
+            pts_dst_r = np.array([[0, -central_zoom], [0, height+central_zoom],
+                                  [int(width/2)+shift, -shift], [int(width/2)+shift, height+shift]])
+
+            pts_src_r_back = np.array([[int(width / 2), -central_zoom], [int(width / 2), height+central_zoom],
+                                       [width + shift, -shift], [width + shift, height + shift]])
+            pts_dst_r_back = pts_src_l
+
+        else:
+
+            pts_src_l = np.array([[0, 0], [0, height], [int(width / 2), 0], [int(width / 2), height]])
+
+            pts_dst_l = np.array([[shift, shift], [shift, height - shift], [int(width / 2), 0],
+                                       [int(width / 2), height]])
+
+            pts_src_r = np.array([[int(width / 2), 0], [int(width / 2), height], [width, 0], [width, height]])
 
 
-        pts_dst_r = np.array([[0, 0], [0, height],
-                            [int(width / 2) - shift, shift], [int(width / 2) - shift, height - shift]])
+            pts_dst_r = np.array([[0, 0], [0, height],
+                                [int(width / 2) - shift, shift], [int(width / 2) - shift, height - shift]])
 
-        pts_src_r_back = np.array([[int(width / 2), 0], [int(width / 2), height],
-                            [width - shift, shift], [width - shift, height - shift]])
-        pts_dst_r_back = pts_src_l
+            pts_src_r_back = np.array([[int(width / 2), 0], [int(width / 2), height],
+                                [width - shift, shift], [width - shift, height - shift]])
+            pts_dst_r_back = pts_src_l
 
         # calculate homography
         self.h_l, _ = cv2.findHomography(pts_src_l, pts_dst_l)
