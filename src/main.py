@@ -5,6 +5,7 @@ import cv2
 from bg_subtractor import Bg_subtractor
 from obj_detector import Obj_detector
 from stats import Statistics
+from rectifier import Rectifier
 
 # background subtraction model
 bg_sub = Bg_subtractor()
@@ -19,11 +20,21 @@ cap = cv2.VideoCapture('../pedestrians.mp4')
 width = int(cap.get(3))
 height = int(cap.get(4))
 
+# rectifying model
+rect = Rectifier(width, height, 10)
+
+# create a named windows and move it
+cv2.namedWindow('video')
+cv2.moveWindow('video', 70, 30)
+
 next_frame, frame = cap.read()
 play = True
 
-while cap.isOpened():
+while cap.isOpened() and next_frame:
     if play:
+
+        frame = rect.rectify(frame)
+
         # extract the foreground mask
         mask = bg_sub.fg_mask(frame)
 
@@ -39,7 +50,7 @@ while cap.isOpened():
         # draw contours
         cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
 
-        # draw obj counts: detected / ground truth
+        # draw ped counts: detected / ground truth
         cv2.putText(frame, 'Objetcs: {}/{}'.format(len(contours), stats.get_curr_truth_counts()),
                     (int(width*0.30), int(height*0.12)),
                     cv2.FONT_HERSHEY_PLAIN, 4, (0, 0, 255), 5)
