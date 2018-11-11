@@ -3,6 +3,8 @@
 import cv2
 import numpy as np
 
+from scipy.spatial import distance
+
 
 class Obj_detector(object):
     def __init__(self):
@@ -40,10 +42,8 @@ class Obj_detector(object):
         """
         approx = []
         for cnt in contours:
-            print(len(cnt))
             epsilon = 0.03 * cv2.arcLength(cnt, True)
             approx.append(cv2.approxPolyDP(cnt, epsilon, True))
-            print(len(approx[-1]))
         return approx
 
     def detect_objects(self, mask):
