@@ -32,6 +32,20 @@ class Obj_detector(object):
                 selected.append(c)
         return selected
 
+    def approx_contours(self, contours):
+        """
+        returns an approximation of contours
+        :param contours:
+        :return:
+        """
+        approx = []
+        for cnt in contours:
+            print(len(cnt))
+            epsilon = 0.03 * cv2.arcLength(cnt, True)
+            approx.append(cv2.approxPolyDP(cnt, epsilon, True))
+            print(len(approx[-1]))
+        return approx
+
     def detect_objects(self, mask):
         """
         detects object from a given binary mask, identify their contours
@@ -40,6 +54,10 @@ class Obj_detector(object):
         """
         _, contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
         self.contours = self.select_contours(contours)
+
+        # contours approximation
+        self.contours = self.approx_contours(self.contours)
+
         return self.contours
 
     def get_bboxes(self):
@@ -49,10 +67,12 @@ class Obj_detector(object):
         """
         self.bboxes = []
         for cnt in self.contours:
-            rect = cv2.minAreaRect(cnt)
-            box = cv2.boxPoints(rect)
-            box = np.int0(box)
-            self.bboxes.append(box)
+            bbox = cv2.boundingRect(cnt)
+
+            # rect = cv2.minAreaRect(cnt)
+            # box = cv2.boxPoints(rect)
+            # box = np.int0(box)
+            self.bboxes.append(bbox)
         return self.bboxes
 
     def detect_keypoints(self, frame, draw=True):
