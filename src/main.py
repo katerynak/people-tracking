@@ -106,7 +106,8 @@ while cap.isOpened() and next_frame:
         bboxes = ped_det.get_bboxes()
 
         if len(bboxes) > 0:
-            ids = ped_tr.assignIDs(bboxes, frame)
+            # ids = ped_tr.assignIDs(bboxes, frame)
+            ids = ped_tr.assignIDsContours(contours, frame)
 
         # print(bboxes[0])
         # if cnt%cnt_upd==0 or cnt<10:

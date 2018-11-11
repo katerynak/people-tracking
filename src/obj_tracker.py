@@ -69,7 +69,11 @@ class Obj_tracker(object):
         self.memSize = 2
 
         # distance threshold for id assignment, max distance a person can travel between 2 frames
-        self.distThreshold = 30
+        self.distThreshold = 50
+        # trying out contours
+
+        self.lastContours = []
+        self.lastContours.append(np.array([[[[0,    0]], [[0,  719]], [[1279,  719]], [[1279,    0]]]]))
 
     def assignIDs(self, bboxes, frame):
         """
@@ -133,4 +137,61 @@ class Obj_tracker(object):
 
         return list(dictids.values())
 
+    def assignIDsContours(self, contours, frame):
+        """
+        assigns IDs to the contours
+        :param contours:
+        :param frame:
+        :return:
+        """
+        contours = np.array(contours)
+
+        print(self.lastContours[-1])
+        print(contours)
+
+        # compute distances
+        distances = arbitrary_distance_matrix(contours, self.lastContours[-1], distance_contours)
+
+        # assigning boxID to each ID
+        # for each previous bbox assign it's id to the closest new box if
+        # the distance between them exceeds a threshold
+        dictids = dict()
+
+        for i in range(len(contours)):
+            dictids[i] = []
+
+        dist_T = distances.transpose()
+        # assign previous IDs to new boxes
+        i = 0
+        for lastids, dist in zip(self.lastIDs[-1], dist_T):
+            mindist = np.min(dist)
+            if mindist <= self.distThreshold:
+                # assign id of the closest next bbox
+                for el in self.lastIDs[-1][i]:
+                    if el not in dictids[np.argmin(dist)]:
+                        dictids[np.argmin(dist)].append(el)
+            i += 1
+
+        i = 0
+        for contour, dist in zip(contours, distances):
+            if len(dictids[i]) == 0:
+                mindist = np.min(dist)
+                # in case of splitting of a single blob assign to each blob all previous ids
+                if mindist <= self.distThreshold:
+                    for el in self.lastIDs[-1][np.argmin(dist)]:
+                        if el not in dictids[i]:
+                            dictids[i].append(el)
+                else:
+                    dictids[i].append(self.nextID)
+                    self.nextID += 1
+            i += 1
+
+        # update memory
+        self.lastIDs.append(dictids)
+        self.lastContours.append(contours)
+        if len(self.lastIDs) > self.memSize:
+            del (self.lastContours[0])
+            del (self.lastIDs[0])
+
+        return list(dictids.values())
 
