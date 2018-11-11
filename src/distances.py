@@ -1,5 +1,7 @@
 import numpy as np
 from scipy.spatial import distance_matrix
+from scipy.spatial import distance as dist
+import cv2
 
 try:
     from joblib import Parallel, delayed, cpu_count
@@ -13,6 +15,36 @@ def euclidean_distance(A, B):
     vector, or two arrays.
     """
     return distance_matrix(np.atleast_2d(A), np.atleast_2d(B), p=2)
+
+
+def distance_contours(c1, c2):
+    """
+    returns a minimum distance between 2 contours: distance of the closest points
+                                                    + distance between centers( useful for occlusions)
+    :param c1:
+    :param c2:
+    :return:
+    """
+    distances = distance_matrix(c1, c2)
+    cnt1, _ = cv2.minEnclosingCircle(c1)
+    cnt2, _ = cv2.minEnclosingCircle(c2)
+    center_dist = dist.euclidean(cnt1, cnt2)
+    return np.min(distances) + center_dist
+
+
+def arbitrary_distance_matrix(A, B, dist):
+    """
+    returns a distance matrix of distances (by def distance must be symmetrical)
+    :param A:
+    :param B:
+    :param dist: function calculating distance of two objects
+    :return:
+    """
+    ret = np.zeros([len(A), len(B)])
+    for i in range(len(A)):
+        for j in range(len(B)):
+            ret[i,j] = dist(A[i],B[j])
+    return ret
 
 
 def parallel_distance_computation(A, B, distance, n_jobs=-1,
