@@ -28,7 +28,7 @@ width = int(cap.get(3))
 height = int(cap.get(4))
 
 # rectifying model
-rect = Rectifier(width, height, shift=35, up=True, central_zoom=30)
+rect = Rectifier(width, height, shift=35, up=True, central_zoom=80)
 
 # create a named windows and move it
 cv2.namedWindow('video')
@@ -99,15 +99,19 @@ while cap.isOpened() and next_frame:
         # frame = rect.rectify(frame)
 
 
-        # # apply it and obtain an rgb foreground
+        # apply it and obtain an rgb foreground
         # col_foreground = cv2.bitwise_and(frame, frame, mask=mask)
 
         contours = ped_det.detect_objects(mask)
         bboxes = ped_det.get_bboxes()
 
+        h_foreground = cv2.bitwise_and(bg_sub.h, bg_sub.h, mask=mask)
+
         if len(bboxes) > 0:
-            # ids = ped_tr.assignIDs(bboxes, frame)
-            ids = ped_tr.assignIDsContours(contours, frame)
+            # ids = ped_tr.assignIDs(bboxes, bg_sub.h)
+            ids = ped_tr.assignIDs(bboxes, h_foreground)
+            # ids = ped_tr.assignIDs(bboxes, frame[2])
+            # ids = ped_tr.assignIDsContours(contours, frame)
 
         # print(bboxes[0])
         # if cnt%cnt_upd==0 or cnt<10:
@@ -150,9 +154,10 @@ while cap.isOpened() and next_frame:
 
         # display the image
         cv2.imshow('video', frame)
+        # cv2.imshow('v', h_foreground)
 
         next_frame, frame = cap.read()
-        # time.sleep(0.3)
+        time.sleep(0.1)
 
     # q for exit, space for pause
     key = cv2.waitKey(10) & 0xFF
