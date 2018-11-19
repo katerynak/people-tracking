@@ -17,6 +17,9 @@ class Bg_subtractor(object):
         self.open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
         self.close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4))
 
+        # keep in memory last hue component for future use
+        self.h = None
+
     def morph_trans(self, frame, open_iter=1, close_iter=5):
         """
         morphological transformations on a given frame
@@ -41,11 +44,14 @@ class Bg_subtractor(object):
         hsv = frame.copy()
         hsv = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
-        # some bluring added in order to make the background more uniform
 
+        # save pure h component
+        self.h = h.copy()
+
+        # some bluring added in order to make the background more uniform
         h = cv2.blur(h, (10, 5))
 
-        h[h>127] = 0
+        h[h>127] = 10
 
         return h
 
