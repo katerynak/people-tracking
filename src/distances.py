@@ -28,10 +28,10 @@ def distance_contours(c1, c2):
     c1 = c1.squeeze()
     c2 = c2.squeeze()
     distances = distance_matrix(c1, c2)
-    cnt1, _ = cv2.minEnclosingCircle(c1)
-    cnt2, _ = cv2.minEnclosingCircle(c2)
-    center_dist = dist.euclidean(cnt1, cnt2)
-    return np.min(distances) + center_dist
+    # cnt1, _ = cv2.minEnclosingCircle(c1)
+    # cnt2, _ = cv2.minEnclosingCircle(c2)
+    # center_dist = dist.euclidean(cnt1, cnt2)
+    return np.min(distances) #+ center_dist
 
 
 def arbitrary_distance_matrix(A, B, dist):
