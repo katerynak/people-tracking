@@ -42,7 +42,7 @@ class Obj_detector(object):
         """
         approx = []
         for cnt in contours:
-            epsilon = 0.03 * cv2.arcLength(cnt, True)
+            epsilon = 0.1 * cv2.arcLength(cnt, True)
             approx.append(cv2.approxPolyDP(cnt, epsilon, True))
         return approx
 
@@ -56,7 +56,7 @@ class Obj_detector(object):
         self.contours = self.select_contours(contours)
 
         # contours approximation
-        self.contours = self.approx_contours(self.contours)
+        # self.contours = self.approx_contours(self.contours)
 
         return self.contours
 
