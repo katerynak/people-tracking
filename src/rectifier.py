@@ -58,8 +58,9 @@ class Rectifier(object):
         :param frame:
         :return:
         """
-        im_out_l = cv2.warpPerspective(frame, self.h_l, (int(self.width / 2), self.height))
-        im_out_r = cv2.warpPerspective(frame, self.h_r, (int(self.width / 2), self.height))
+        # cubic interpolation for inferring missing color info
+        im_out_l = cv2.warpPerspective(frame, self.h_l, (int(self.width / 2), self.height), flags=cv2.INTER_CUBIC)
+        im_out_r = cv2.warpPerspective(frame, self.h_r, (int(self.width / 2), self.height), flags=cv2.INTER_CUBIC)
 
         vis = np.concatenate((im_out_l, im_out_r), axis=1)
 
