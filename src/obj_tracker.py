@@ -82,6 +82,13 @@ class Obj_tracker(object):
         # list of histograms of single ids, id: hist
         self.idsHists = []
         self.idsHists.append({})
+
+        # histograms of current bboxes
+        self.hists = {}
+
+        # positions of bounded boxes of current frame
+        self.bboxes_cnt = {}
+
         # list of kalman filters of single ids
         # id: KalmanFilter instance
         self.kalmanFilters = {}
@@ -102,7 +109,7 @@ class Obj_tracker(object):
         self.memSize = 2
 
         # distance threshold for id assignment, max distance a person can travel between 2 frames
-        self.distThreshold1 = 90
+        self.distThreshold1 = 70
         self.distThreshold = 130
         # trying out contours
 
@@ -150,52 +157,71 @@ class Obj_tracker(object):
         print(col_sim)
         print(dist_sim)
 
-        return col_sim + dist_sim*5
+        return col_sim + dist_sim*8
         # return dist_sim
+
+    def similarity2(self, id, boxid, dist_weight = 0.0001):
+        """
+        returns similarity of the box comparing to the statistics of the box corresponding to the target id
+        in this function 2 similarity metrics are combined:
+        1. color histogram similarity
+        2. inverse distance similarity: 1/(predicted id position - box position)
+        :param id:
+        :param boxid:
+        :return:
+        """
+        h1 = self.hists[boxid]
+        if len(self.idsHists[-1].keys()) == 0:
+            col_sim = 0
+        else:
+            h2 = self.idsHists[-1][id]
+            col_sim = self.histSimilarity(h1, h2)
+        box_x, box_y = self.bboxes_cnt[boxid]
+
+        pos = self.kalmanFilters[id].lastPosition
+        xp, yp = pos
+        dist = distance.euclidean([box_x, box_y], [xp, yp])
+        # dist = distance.euclidean([box_x], [xp])
+        dist_sim = 1 / max(dist, 0.00001)
+        if id==8:
+            print("-----------------------")
+            print(col_sim, dist_sim*dist_weight)
+        return col_sim + dist_sim*dist_weight
+
+    def most_similar(self, id, boxesIds):
+        """
+        given an id and ids of the closest boxes
+        returns the most similar to the pedestrian (according to color + euclidean distances) box id
+        :param id:
+        :param boxesIds:
+        :return:
+        """
+        dists = np.zeros(len(boxesIds))
+        i = 0
+        for boxId in boxesIds:
+            dists[i] = self.similarity2(id, boxId, dist_weight=4)
+            i += 1
+        print(dists)
+        max_sim = boxesIds[np.argmax(dists)]
+        return max_sim
+
 
     def __update_positions(self, bboxes_cnt):
 
-        idsToDel = []
+        # idsToDel = []
         for id in self.kalmanFilters:
 
             self.idsPositions[id] = self.kalmanFilters[id].predict()
-            if self.idsPositions[id] is not None:
-                # removing objects outside the scene
-                if (self.idsPositions[id][0] < 1 or self.idsPositions[id][0] > self.frameWidth or
-                        self.idsPositions[id][1] < 1 or self.idsPositions[id][1] > self.frameHeight):
-                    idsToDel.append(id)
+            # if self.idsPositions[id] is not None:
+            #     # removing objects outside the scene
+            #     if (self.idsPositions[id][0] < 1 or self.idsPositions[id][0] > self.frameWidth or
+            #             self.idsPositions[id][1] < 1 or self.idsPositions[id][1] > self.frameHeight):
+            #         idsToDel.append(id)
 
         # for id in idsToDel:
         #     del (self.idsPositions[id])
         #     del (self.kalmanFilters[id])
 
-        len_Nones = sum(x is None for x in self.idsPositions.values())
-
-        # dictids = {}
-        # for i in range(len(bboxes_cnt)):
-        #     dictids[i] = []
-
-        if len_Nones > 0:
-
-            # dists = arbitrary_distance_matrix(self.lastBboxesCnt[-1], bboxes_cnt, distance.euclidean)
-            # # assign previous IDs to new boxes
-            # i = 0
-            # for lastids, dist in zip(self.lastIDs[-1], dists):
-            #     mindist = np.min(dist)
-            #     if mindist <= self.distThreshold:
-            #         # assign id of the closest next bbox
-            #         for el in self.lastIDs[-1][i]:
-            #             if el not in dictids[np.argmin(dist)]:
-            #                 dictids[np.argmin(dist)].append(el)
-            #     i += 1
-
-            # if some of the positions have None values, assign to them the last position
-            for id in self.idsPositions:
-                if self.idsPositions[id] == None:
-                    # key = getKeys(dictids, id)
-                    # if len(key) > 0:
-                    #     self.idsPositions[id] = bboxes_cnt[key[0]]
-                    self.idsPositions[id] = self.kalmanFilters[id].lastPosition
 
     def assignIDs(self, bboxes, frame_h):
         """
@@ -213,15 +239,10 @@ class Obj_tracker(object):
         # transpose list of lists to get [x,y] couples
         bboxes_cnt = list(map(list, zip(*bboxes_cnt)))
 
+        self.bboxes_cnt = bboxes_cnt
+
         # update id positions based on Kalman filter predictions
         self.__update_positions(bboxes_cnt)
-
-        # compute distances
-        distances = arbitrary_distance_matrix(bboxes_cnt, self.lastBboxesCnt[-1], distance.euclidean)
-
-        # print(self.idsPositions)
-        # print(bboxes_cnt)
-        distances_all = arbitrary_distance_matrix(bboxes_cnt, list(self.idsPositions.values()), distance.euclidean)
 
         # compute color histograms of the current boxes
         hists = []
@@ -231,22 +252,41 @@ class Obj_tracker(object):
             hist_h = cv2.calcHist([subframe], [0], None, [self.bins], [1, 230])
             hists.append(hist_h)
 
+        self.hists = hists
+
+        # compute distances
+        distances = arbitrary_distance_matrix(bboxes_cnt, self.lastBboxesCnt[-1], distance.euclidean)
+
+        distances_all = arbitrary_distance_matrix(bboxes_cnt, list(self.idsPositions.values()), distance.euclidean)
+        # distances_all = arbitrary_distance_matrix(list(self.idsPositions.keys()), list(range(0, len(bboxes))),
+        #                                           self.similarity2)
+
+
         dictids = dict()
 
         for i in range(len(bboxes)):
             dictids[i] = []
 
+        # dist_T = distances_all
         dist_T = distances_all.transpose()
+
         # assign IDs to new boxes
         i = 0
         for id, dist in zip(self.idsPositions, dist_T):
             mindist = np.min(dist)
             if mindist <= self.distThreshold1:
                 # assign id of the closest next bbox
-                idAge = self.frameCnt - self.idsLastUpdate[id]
-                if id not in dictids[np.argmin(dist)] and idAge<self.maxIdAge:
-                    dictids[np.argmin(dist)].append(id)
-                    self.idsLastUpdate[id] = self.frameCnt
+
+                #select the closest 3 bboxes and assign an id to the most similar one
+                orderedIdx = np.argsort(dist)
+                ordered = np.sort(dist)
+                closestBboxes = orderedIdx[ordered<self.distThreshold][:3]
+
+                most_sim = self.most_similar(id, closestBboxes)
+                # print(most_sim)
+                # dictids[np.argmin(dist)].append(id)
+                dictids[most_sim].append(id)
+                self.idsLastUpdate[id] = self.frameCnt
             i += 1
 
         # assign new box to the closest box from the previous frame
@@ -302,7 +342,8 @@ class Obj_tracker(object):
             for (i, boxId) in enumerate(boxesIds):
                 for (j, id) in enumerate(ids):
                     x, y = bboxes_cnt[boxId]
-                    sim = self.similarity(self.idsHists[-1][id], hists[boxId], id, x, y)
+                    sim = self.similarity2(id, boxId)
+                    # sim = self.similarity(self.idsHists[-1][id], hists[boxId], id, x, y)
                     # sim = self.histSimilarity(self.idsHists[id], hists[boxId])
                     cost_matrix[i, j] = -sim
                 # if we have only one id, it will be assigned to the most similar box
@@ -328,7 +369,8 @@ class Obj_tracker(object):
             similarities = {}
             for boxid in boxids:
                 x, y = bboxes_cnt[boxid]
-                similarities[boxid] = self.similarity(self.idsHists[-1][id], hists[boxid], id, x, y)
+                similarities[boxid] = self.similarity2(id, boxid)
+                # similarities[boxid] = self.similarity(self.idsHists[-1][id], hists[boxid], id, x, y)
             winner = max(similarities, key=similarities.get)
             for boxid in boxids:
                 dictids[boxid].remove(id)
@@ -379,11 +421,27 @@ class Obj_tracker(object):
             else:
                 self.kalmanFilters[id].correct(x, y, 0.9)
 
+        # deleting old ids
+
+        idsToDel = []
+        for id, lastUpdate in self.idsLastUpdate.items():
+            if self.frameCnt - lastUpdate > self.maxIdAge:
+                idsToDel.append(id)
+                print("{} to delete".format(id))
+
+        for id in idsToDel:
+            del(self.idsPositions[id])
+            del(self.idsLastUpdate[id])
+            del(idsHists[id])
+            del(self.kalmanFilters[id])
+
+
+
         # update memory
         self.lastIDs.append(dictids)
         self.lastBboxesCnt.append(bboxes_cnt)
         self.lastBboxes.append(bboxes)
-        self.lastHists.append(hists)
+        self.lastHists.append(self.hists)
         self.idsHists.append(idsHists)
         if len(self.lastBboxesCnt) > self.memSize:
             del (self.lastBboxesCnt[0])
