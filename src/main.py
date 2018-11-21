@@ -88,6 +88,8 @@ ids = []
 
 frameCnt = 0
 
+out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 15, (width,height))
+
 while cap.isOpened() and next_frame:
     if play:
 
@@ -170,6 +172,8 @@ while cap.isOpened() and next_frame:
         # display the image
         cv2.imshow('video', frame)
         # cv2.imshow('v', h_foreground)
+
+        out.write(frame)
 
         next_frame, frame = cap.read()
         # time.sleep(0.1)
