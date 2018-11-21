@@ -28,7 +28,7 @@ width = int(cap.get(3))
 height = int(cap.get(4))
 
 # rectifying model
-rect = Rectifier(width, height, shift=35, up=True, central_zoom=80)
+rect = Rectifier(width, height, shift=50, up=True, central_zoom=80)
 
 # create a named windows and move it
 cv2.namedWindow('video')
@@ -86,6 +86,8 @@ def drawBboxes(bboxes, frame, color = (0, 0, 255), ids=None):
 
 ids = []
 
+frameCnt = 0
+
 while cap.isOpened() and next_frame:
     if play:
 
@@ -139,6 +141,15 @@ while cap.isOpened() and next_frame:
         # update statistics
         stats.update(contours)
 
+        if frameCnt >= 0 and frameCnt < 5:
+            frame = cv2.circle(frame, (730, 350), 15, (255, 0, 255), -1) # 10
+
+        if frameCnt >= 264 and frameCnt < 271:
+            frame = cv2.circle(frame, (1280, 280), 15, (255, 0, 255), -1) # 36
+
+        if frameCnt >= 253 and frameCnt < 258:
+            frame = cv2.circle(frame, (4, 581), 15, (255, 0, 255), -1)  # 42 253
+
         # draw contours
         cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
         frame = drawBboxes(bboxes,frame, (0, 0, 255), ids=ids)
@@ -152,12 +163,17 @@ while cap.isOpened() and next_frame:
                     (int(width*0.30), int(height*0.12)),
                     cv2.FONT_HERSHEY_PLAIN, 4, (0, 0, 255), 5)
 
+        cv2.putText(frame, 'frame: {}'.format(frameCnt),
+                    (int(width * 0.70), int(height * 0.12)),
+                    cv2.FONT_HERSHEY_PLAIN, 4, (0, 0, 255), 3)
+
         # display the image
         cv2.imshow('video', frame)
         # cv2.imshow('v', h_foreground)
 
         next_frame, frame = cap.read()
-        time.sleep(0.1)
+        # time.sleep(0.1)
+        frameCnt += 1
 
     # q for exit, space for pause
     key = cv2.waitKey(10) & 0xFF

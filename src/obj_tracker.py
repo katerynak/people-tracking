@@ -5,6 +5,8 @@ import numpy as np
 from scipy.spatial import distance_matrix, distance
 from distances import distance_contours, arbitrary_distance_matrix
 from kalman_filter import KalmanFilter
+import heapq
+from operator import itemgetter
 from sklearn.utils.linear_assignment_ import linear_assignment
 
 # function to flatten list of lists
@@ -44,6 +46,19 @@ def getKeysWholeList(mydict, value):
 
     return ret
 
+def normalized_dot_product(v1, v2):
+    """
+    computes normalized dot product of two vectors
+    :param v1:
+    :param v2:
+    :return:
+    """
+
+    v1 /= np.linalg.norm(v1)
+    v2 /= np.linalg.norm(v2)
+
+    return np.dot(v1, v2)
+
 
 class Obj_tracker(object):
     def __init__(self, frameWidth, frameHeight):
@@ -55,29 +70,23 @@ class Obj_tracker(object):
         # memory of ids from previous frames
         # list of dictionaries of type blobID:IDs
         self.lastIDs = []
-        self.lastIDs.append({0: [0]})
+        self.lastIDs.append({})
+        self.lastIDs.append({})
 
         # if bounding boxes are used
         # list of last bboxes, each blobID corresponds to the index in the list
         self.lastBboxes = []
-        # first bbox : whole frame
-        self.lastBboxes.append([0, 0, frameWidth, frameHeight])
         # centers of bboxes
         self.lastBboxesCnt = []
-        self.lastBboxesCnt.append(np.array([[frameWidth // 2, frameHeight // 2]]))
 
         # if contours are used
         self.lastContours = []
-        self.lastContours.append(np.array([[[[0, 0]], [[0, 719]], [[1279, 719]], [[1279, 0]]]]))
 
         # next available ID
         self.nextID = 1
 
         # number of bins for color histograms
         self.bins = 64
-        # list of dictionaries of type ID:list of counts
-        self.lastHists = []
-        self.lastHists.append(np.zeros([self.bins, 1]))
 
         # list of histograms of single ids, id: hist
         self.idsHists = []
@@ -92,28 +101,37 @@ class Obj_tracker(object):
         # list of kalman filters of single ids
         # id: KalmanFilter instance
         self.kalmanFilters = {}
-        self.kalmanFilters[0] = KalmanFilter(frameWidth // 2, frameHeight // 2)
-        x, y = self.lastBboxesCnt[-1][0]
-        self.kalmanFilters[0].correct(x, y)
 
         # id: pos
         self.idsPositions = {}
 
         # id: lastFrame
         self.idsLastUpdate = {}
-        self.idsLastUpdate[0] = 0
+        self.idsFirstFrame = {}
+        # counter for subsequent frames, for identifying temporary and well established ids
+        # id: subsequent frames counter
+        self.idsFramesCnt = {}
+        self.establishedThresh = 5
 
-        self.maxIdAge = 8
+        # list of established ids
+        self.establishedIds = []
+        # self.idsLastUpdate[0] = 0
+
+        self.maxIdAge = 15
 
         # number of frames to keep track of
-        self.memSize = 2
+        self.memSize = 15
 
         # distance threshold for id assignment, max distance a person can travel between 2 frames
-        self.distThreshold1 = 70
-        self.distThreshold = 130
+        self.distThreshold1 = 80
+        # self.distThreshold = 2
         # trying out contours
 
+        self.bbox_area_min_4 = 10000
+
         self.frameCnt = 0
+
+
 
     def histSimilarity(self, hist1, hist2, method=cv2.HISTCMP_INTERSECT, normalize=True):
         """
@@ -136,31 +154,7 @@ class Obj_tracker(object):
 
         return cv2.compareHist(h1, h2, method=method)
 
-    def similarity(self, h1, h2, id, box_x, box_y):
-        """
-        returns similarity of the box comparing to the statistics of the box corresponding to the target id
-        in this function 2 similarity metrics are combined:
-        1. color histogram similarity
-        2. inverse distance similarity: 1/(predicted id position - box position)
-        :param id:
-        :param boxid:
-        :return:
-        """
-        col_sim = self.histSimilarity(h1, h2)
-
-        pos = self.kalmanFilters[id].lastPosition
-        xp, yp = pos
-        dist = distance.euclidean([box_x, box_y], [xp, yp])
-        # dist = distance.euclidean([box_x], [xp])
-        dist_sim = 1 / max(dist, 0.00001)
-        print("----------------------------")
-        print(col_sim)
-        print(dist_sim)
-
-        return col_sim + dist_sim*8
-        # return dist_sim
-
-    def similarity2(self, id, boxid, dist_weight = 0.0001):
+    def similarity(self, id, boxid, dist_weight = 0.5, velocity_weight = 0):
         """
         returns similarity of the box comparing to the statistics of the box corresponding to the target id
         in this function 2 similarity metrics are combined:
@@ -181,14 +175,10 @@ class Obj_tracker(object):
         pos = self.kalmanFilters[id].lastPosition
         xp, yp = pos
         dist = distance.euclidean([box_x, box_y], [xp, yp])
-        # dist = distance.euclidean([box_x], [xp])
         dist_sim = 1 / max(dist, 0.00001)
-        if id==8:
-            print("-----------------------")
-            print(col_sim, dist_sim*dist_weight)
-        return col_sim + dist_sim*dist_weight
+        return col_sim*(1-dist_weight) + dist_sim*dist_weight
 
-    def most_similar(self, id, boxesIds):
+    def most_similar(self, id, boxesIds, col_threshold = 0.1):
         """
         given an id and ids of the closest boxes
         returns the most similar to the pedestrian (according to color + euclidean distances) box id
@@ -199,29 +189,25 @@ class Obj_tracker(object):
         dists = np.zeros(len(boxesIds))
         i = 0
         for boxId in boxesIds:
-            dists[i] = self.similarity2(id, boxId, dist_weight=4)
+            dists[i] = self.similarity(id, boxId, dist_weight=0.5)
             i += 1
-        print(dists)
-        max_sim = boxesIds[np.argmax(dists)]
+        if np.max(dists>col_threshold):
+            max_sim = boxesIds[np.argmax(dists)]
+        else: max_sim = -1
         return max_sim
-
 
     def __update_positions(self, bboxes_cnt):
 
-        # idsToDel = []
         for id in self.kalmanFilters:
-
             self.idsPositions[id] = self.kalmanFilters[id].predict()
-            # if self.idsPositions[id] is not None:
-            #     # removing objects outside the scene
-            #     if (self.idsPositions[id][0] < 1 or self.idsPositions[id][0] > self.frameWidth or
-            #             self.idsPositions[id][1] < 1 or self.idsPositions[id][1] > self.frameHeight):
-            #         idsToDel.append(id)
 
-        # for id in idsToDel:
-        #     del (self.idsPositions[id])
-        #     del (self.kalmanFilters[id])
+    def __find_oldest_id(self, ids, n = 1):
+        firstFrames={}
+        for id in ids:
+            firstFrames[id] = self.idsFirstFrame[id]
 
+        return heapq.nsmallest(n, firstFrames, key=firstFrames.get)
+        # return min(firstFrames, key=firstFrames.get)
 
     def assignIDs(self, bboxes, frame_h):
         """
@@ -234,6 +220,7 @@ class Obj_tracker(object):
 
         bboxes = np.array(bboxes)
 
+        # --------------- compute bbox coordinates --------------------------
         # compute centers of bounding boxes : x + w/2 , y + h//2
         bboxes_cnt = [list(bboxes[:, 0] + bboxes[:, 2] // 2), list(bboxes[:, 1] + bboxes[:, 3] // 2)]
         # transpose list of lists to get [x,y] couples
@@ -241,9 +228,12 @@ class Obj_tracker(object):
 
         self.bboxes_cnt = bboxes_cnt
 
+        # ---------------- updating kalman predictions ----------------------
         # update id positions based on Kalman filter predictions
         self.__update_positions(bboxes_cnt)
 
+
+        # ---------------- computing current color histograms of all bboxes -
         # compute color histograms of the current boxes
         hists = []
         for bbox in bboxes:
@@ -254,139 +244,80 @@ class Obj_tracker(object):
 
         self.hists = hists
 
-        # compute distances
-        distances = arbitrary_distance_matrix(bboxes_cnt, self.lastBboxesCnt[-1], distance.euclidean)
-
-        distances_all = arbitrary_distance_matrix(bboxes_cnt, list(self.idsPositions.values()), distance.euclidean)
-        # distances_all = arbitrary_distance_matrix(list(self.idsPositions.keys()), list(range(0, len(bboxes))),
-        #                                           self.similarity2)
-
+        # ------------------- assign IDs to new boxes ----------------------------
+        distances = arbitrary_distance_matrix(list(self.idsPositions.values()), bboxes_cnt, distance.euclidean)
 
         dictids = dict()
 
         for i in range(len(bboxes)):
             dictids[i] = []
 
-        # dist_T = distances_all
-        dist_T = distances_all.transpose()
+        # bbox pool, mask used to assign available ids
+        bbox_available_mask = np.array([True] * len(bboxes))
 
-        # assign IDs to new boxes
-        i = 0
-        for id, dist in zip(self.idsPositions, dist_T):
-            mindist = np.min(dist)
+        for id, dist in zip(self.idsPositions, distances):
+            dists = dist[bbox_available_mask]
+            if len(dists) == 0:
+                break
+            idx = np.atleast_1d(np.argwhere(bbox_available_mask).squeeze())
+
+            mindist = np.min(dists)
             if mindist <= self.distThreshold1:
                 # assign id of the closest next bbox
 
-                #select the closest 3 bboxes and assign an id to the most similar one
-                orderedIdx = np.argsort(dist)
-                ordered = np.sort(dist)
-                closestBboxes = orderedIdx[ordered<self.distThreshold][:3]
+                # select the closest 3 bboxes and assign an id to the most similar one
+                orderedIdx = idx[np.argsort(dists)]
+                ordered = np.sort(dists)
+
+                closestBboxes = orderedIdx[ordered<self.distThreshold1][:3]
 
                 most_sim = self.most_similar(id, closestBboxes)
-                # print(most_sim)
-                # dictids[np.argmin(dist)].append(id)
-                dictids[most_sim].append(id)
-                self.idsLastUpdate[id] = self.frameCnt
-            i += 1
-
-        # assign new box to the closest box from the previous frame
-        i = 0
-        for bbox, dist in zip(bboxes, distances):
-            if len(dictids[i])==0:
-                mindist = np.min(dist)
-                # in case of splitting of a single blob assign to each blob all previous ids
-                if mindist <= self.distThreshold:
-                    for el in self.lastIDs[-1][np.argmin(dist)]:
-                        if el not in dictids[i]:
-                            dictids[i].append(el)
-                else:
-                    dictids[i].append(self.nextID)
-                    x, y = bboxes_cnt[i]
-                    self.kalmanFilters[self.nextID] = KalmanFilter(x, y)
-                    self.idsLastUpdate[self.nextID] = self.frameCnt
-                    self.nextID += 1
-
-            i += 1
-
-        # # assign new box to the closest id
-        # i = 0
-        # for bbox, dist in zip(bboxes, distances_all):
-        #     mindist = np.min(dist)
-        #     if mindist <= self.distThreshold:
-        #         id = list(self.idsPositions.keys())[np.argmin(dist)]
-        #         if id not in dictids[i]:
-        #             dictids[i].append(id)
-        #     else:
-        #         dictids[i].append(self.nextID)
-        #         x, y = bboxes_cnt[i]
-        #         self.kalmanFilters[self.nextID] = KalmanFilter(x, y)
-        #         self.nextID += 1
-        #
-        #     i += 1
-
-        # ----------------- linear assignment of ids with multiple boxes ----------
-
-        boxesToCheck = []
-        idsToCheck = []
-
-        for bboxIdx, ids in dictids.items():
-            bboxiDs = getKeysWholeList(dictids, ids)
-            if len(bboxiDs) > 1:
-                if bboxiDs not in boxesToCheck:
-                    boxesToCheck.append(bboxiDs)
-                    idsToCheck.append(ids)
-
-        for boxesIds, ids in zip(boxesToCheck, idsToCheck):
-
-            cost_matrix = np.zeros([len(boxesIds), len(ids)])
-            for (i, boxId) in enumerate(boxesIds):
-                for (j, id) in enumerate(ids):
-                    x, y = bboxes_cnt[boxId]
-                    sim = self.similarity2(id, boxId)
-                    # sim = self.similarity(self.idsHists[-1][id], hists[boxId], id, x, y)
-                    # sim = self.histSimilarity(self.idsHists[id], hists[boxId])
-                    cost_matrix[i, j] = -sim
-                # if we have only one id, it will be assigned to the most similar box
-            if len(ids) == len(boxesIds):
-                sols = linear_assignment(cost_matrix)
-                for sol in sols:
-                    dictids[boxesIds[sol[0]]] = []
-                for sol in sols:
-                    dictids[boxesIds[sol[0]]].append(ids[sol[1]])
-
-        # -------------- if one id appears in multiple boxes assign it to a single box
-
-        # id : list of boxids associated with that id
-        idsToCheck = {}
-        ids = set(flatten(dictids.values()))
-        for id in ids:
-            idBoxes = getKeys(dictids, id)
-            if len(idBoxes) > 1:
-                idsToCheck[id] = idBoxes
-
-        for id, boxids in idsToCheck.items():
-            # boxid:similarity
-            similarities = {}
-            for boxid in boxids:
-                x, y = bboxes_cnt[boxid]
-                similarities[boxid] = self.similarity2(id, boxid)
-                # similarities[boxid] = self.similarity(self.idsHists[-1][id], hists[boxid], id, x, y)
-            winner = max(similarities, key=similarities.get)
-            for boxid in boxids:
-                dictids[boxid].remove(id)
-            dictids[winner].append(id)
+                # most_sim = np.argsort(np.logical_not(bbox_available_mask))[most_sim]
+                if most_sim != -1:
+                    dictids[most_sim].append(id)
+                    # dictids[np.argmin(dist)].append(id)
+                    self.idsLastUpdate[id] = self.frameCnt
+                    # bbox_available_mask[most_sim] = False
 
         # ------------------ assignment of new ids to boxes without ids -----------
 
         # check if some bboxes have lost all ids
-        # for boxid, ids in dictids.items():
-        #     if len(ids)==0:
-        #         dictids[boxid].append(self.nextID)
-        #         x, y = bboxes_cnt[boxid]
-        #         self.kalmanFilters[self.nextID] = KalmanFilter(x, y)
-        #         self.idsLastUpdate[self.nextID] = self.frameCnt
-        #         self.nextID += 1
+        for boxid, ids in dictids.items():
+            if len(ids)==0:
+                dictids[boxid].append(self.nextID)
+                x, y = bboxes_cnt[boxid]
+                self.kalmanFilters[self.nextID] = KalmanFilter(x, y)
+                self.idsLastUpdate[self.nextID] = self.frameCnt
+                self.idsFirstFrame[self.nextID] = self.frameCnt
+                self.nextID += 1
 
+        # ------------------ a box can containg max 4 persons, if it contains more, cut out the youngest-
+        # if a box contains 4 persons or more check also it's dimension, if it's too small cut the number of ids
+
+        for boxid, ids in dictids.items():
+            if len(ids) > 4:
+                dictids[boxid] = self.__find_oldest_id(ids, n=4)
+                idxToDel = list(set(ids) - set(dictids[boxid]))
+                for idx in idxToDel:
+                    del (self.idsPositions[idx])
+                    del (self.idsLastUpdate[idx])
+                    del (self.kalmanFilters[idx])
+
+        for boxid, ids in dictids.items():
+            if len(ids) == 4:
+                print("----------------------")
+                print(ids)
+                print(bboxes[boxid][2] * bboxes[boxid][3])
+                if bboxes[boxid][2] * bboxes[boxid][3] < self.bbox_area_min_4:
+                    print(ids)
+                    dictids[boxid] = self.__find_oldest_id(ids, n=2)
+                    idxToDel = list(set(ids) - set(dictids[boxid]))
+                    for idx in idxToDel:
+                        del (self.idsPositions[idx])
+                        del (self.idsLastUpdate[idx])
+                        del (self.kalmanFilters[idx])
+
+        # ------------------ updating histograms only of bboxes with single id ------------------
         # decide which color histograms to update: only an id assigned to a single bbox
         # and in case when it is the only id of that bbox
         # updating histograms, contains couples id:boxid
@@ -402,6 +333,11 @@ class Obj_tracker(object):
         # update the histograms of selected ids
         for id, boxid in idsToUpdate.items():
             cnt = 0
+            # if id in idsHists.keys():
+            #     # average with the previous value
+            #     idsHists[id] *= 0.1
+            #     idsHists[id] += hists[boxid]*0.9
+            # else:
             idsHists[id] = hists[boxid]
             for phists in self.idsHists[::-1]:
                     for idx in phists:
@@ -410,24 +346,24 @@ class Obj_tracker(object):
                             cnt += 1
             idsHists[id] /= cnt+1
 
-        # self.idsHists.update(idsHists)
+        # ------------------- correcting Kalman filters: for box with single id, uses its position, for those with multiple ids uses
+        #                     a combination between predicted position and weighted box position
 
-        # print(list(set(flatten(dictids.values()))))
         for id in list(set(flatten(dictids.values()))):
             x, y = bboxes_cnt[getKeys(dictids, id)[0]]
             # correct position only when id is separated
             if id in idsToUpdate:
                 self.kalmanFilters[id].correct(x, y)
             else:
-                self.kalmanFilters[id].correct(x, y, 0.9)
+                self.kalmanFilters[id].correct(x, y, 0.8)
 
-        # deleting old ids
+
+        # -------------- deleting old ids --------------------
 
         idsToDel = []
         for id, lastUpdate in self.idsLastUpdate.items():
             if self.frameCnt - lastUpdate > self.maxIdAge:
                 idsToDel.append(id)
-                print("{} to delete".format(id))
 
         for id in idsToDel:
             del(self.idsPositions[id])
@@ -435,20 +371,40 @@ class Obj_tracker(object):
             del(idsHists[id])
             del(self.kalmanFilters[id])
 
+        # ----------------- update memory --------------------
 
-
-        # update memory
         self.lastIDs.append(dictids)
         self.lastBboxesCnt.append(bboxes_cnt)
         self.lastBboxes.append(bboxes)
-        self.lastHists.append(self.hists)
         self.idsHists.append(idsHists)
         if len(self.lastBboxesCnt) > self.memSize:
             del (self.lastBboxesCnt[0])
             del (self.lastBboxes[0])
             del (self.lastIDs[0])
-            del (self.lastHists[0])
             del (self.idsHists[0])
+
+        # -------------- delete not established ids ----------
+
+        for boxid, ids in dictids.items():
+            # if box contains one single id
+            for id in ids:
+                if id not in self.establishedIds:
+                    # if the id was assigned to some box last time: increase the counter
+                    # if id in flatten(self.lastIDs[-2].values()):
+                    if id in self.idsFramesCnt.keys():
+                        self.idsFramesCnt[id] += 1
+                        if self.idsFramesCnt[id] == self.establishedThresh:
+                            self.establishedIds.append(id)
+                    # otherwise reset the counter
+                    else:
+                        self.idsFramesCnt[id] = 1
+                    if self.idsFramesCnt[id] < self.establishedThresh:
+                        dictids[boxid].remove(id)
+
+        # ----------------- assign the oldest id to the box ---
+        for boxid, ids in dictids.items():
+            if len(ids) > 1:
+                dictids[boxid] = self.__find_oldest_id(ids)
 
         return list(dictids.values())
 
