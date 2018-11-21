@@ -17,12 +17,13 @@ class KalmanFilter(object):
 
         # number of times the filter was corrected
         self.corrections = 0
-        self.threshold = 3
+        self.threshold = 7
 
         # just for correction purposes, if the filter has predicted a value before it is not needed to predict
         # another time before correction
         self.toPredict = False
         self.lastPredicted = [x, y]
+        self.lastVelocity = [0, 0]
         self.lastPosition = [x, y]
         self.correct(x, y)
 
@@ -42,7 +43,9 @@ class KalmanFilter(object):
         # return None if the filter is still consider unreliable
         predicted = self.kf.predict()
         self.lastPredicted = [predicted[0][0], predicted[1][0]]
+        self.lastVelocity = [predicted[2][0], predicted[3][0]]
         if self.corrections > self.threshold:
             return self.lastPredicted
         else:
-            return 0.8*np.array(self.lastPosition)+0.2*np.array(self.lastPredicted)
+            return 0.95*np.array(self.lastPosition)+0.05*np.array(self.lastPredicted)
+            # return np.array(self.lastPosition)
