@@ -9,7 +9,7 @@ from scipy.spatial import distance
 class Obj_detector(object):
     def __init__(self):
         # parameter initialization
-        self.bbox_area_min = 100
+        self.bbox_area_min = 110
 
         # keeps in memory last contours detected
         self.contours = []

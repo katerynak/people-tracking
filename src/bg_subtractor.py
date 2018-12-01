@@ -16,11 +16,12 @@ class Bg_subtractor(object):
         # morphological transformations kernels
         self.open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
         self.close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4))
+        self.dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
         # keep in memory last hue component for future use
         self.h = None
 
-    def morph_trans(self, frame, open_iter=1, close_iter=5):
+    def morph_trans(self, frame, open_iter=1, close_iter=5, dilate_iter=1):
         """
         morphological transformations on a given frame
         :param frame:
@@ -31,6 +32,7 @@ class Bg_subtractor(object):
         ret = frame.copy()
         ret = cv2.morphologyEx(ret, cv2.MORPH_OPEN, self.open, iterations=open_iter)
         ret = cv2.morphologyEx(ret, cv2.MORPH_CLOSE, self.close, iterations=close_iter)
+        ret = cv2.morphologyEx(ret, cv2.MORPH_DILATE, self.dilate, iterations=dilate_iter)
         return ret
 
     def rgb2h(self, frame):
@@ -43,7 +45,7 @@ class Bg_subtractor(object):
         # hsv contains hue and saturation components that are not dependent on the light info
         hsv = frame.copy()
         hsv = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
-        h, s, v = cv2.split(hsv)
+        h, _, _ = cv2.split(hsv)
 
         # save pure h component
         self.h = h.copy()
@@ -51,7 +53,7 @@ class Bg_subtractor(object):
         # some bluring added in order to make the background more uniform
         h = cv2.blur(h, (10, 5))
 
-        h[h>127] = 10
+        # h[h>127] = 10
 
         return h
 
@@ -65,6 +67,10 @@ class Bg_subtractor(object):
         foreground = self.rgb2h(foreground)
         foreground = self.bgsb.apply(foreground, learningRate=self.lr)
         foreground = self.morph_trans(foreground)
+
+        # cutting bottom area
+        foreground[645:len(foreground), 100:1150] = 0
+        foreground[0:110, 100:1150] = 0
 
         return foreground
 
@@ -106,9 +112,9 @@ if __name__ == "__main__":
 
             cv2.imshow('mask', col_foreground)
 
-            h = cv2.blur(h, (10, 5))
+            # h = cv2.blur(h, (10, 5))
 
-            cv2.imshow('h', h)
+            # cv2.imshow('h', h)
 
             next_frame, frame = cap.read()
             cnt += 1
